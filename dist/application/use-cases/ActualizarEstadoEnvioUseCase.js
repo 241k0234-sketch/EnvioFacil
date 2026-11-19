@@ -6,18 +6,15 @@ class ActualizarEstadoEnvioUseCase {
     constructor(envioRepository) {
         this.envioRepository = envioRepository;
     }
-    async execute(id, nuevoEstado) {
-        if (isNaN(id) || id <= 0) {
-            throw new Envio_1.DomainError('El parámetro ID debe ser un número entero positivo.', 400);
+    async execute(input) {
+        if (!input.usuario_id || (!input.motivo_cancelacion && input.estado_orden === 'CANCELLED')) {
+            throw new Envio_1.DomainError('usuario_id y motivo_cancelacion son obligatorios para cancelar', 400, 'BAD_REQUEST');
         }
-        if (!nuevoEstado) {
-            throw new Envio_1.DomainError('El campo "estado" es obligatorio en el cuerpo de la petición.', 400);
-        }
-        const envio = await this.envioRepository.findById(id);
+        const envio = await this.envioRepository.findById(input.id_envio);
         if (!envio) {
-            throw new Envio_1.DomainError(`No existe un envío registrado con el ID ${id}.`, 404);
+            throw new Envio_1.DomainError('Orden no encontrada', 404, 'NOT_FOUND');
         }
-        envio.cambiarEstado(nuevoEstado);
+        envio.cambiarEstado(input.estado_orden, input.usuario_id, input.motivo_cancelacion);
         return await this.envioRepository.update(envio);
     }
 }

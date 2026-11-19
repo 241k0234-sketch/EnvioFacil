@@ -2,63 +2,55 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Envio = exports.DomainError = void 0;
 class DomainError extends Error {
-    constructor(message, statusCode = 400) {
+    constructor(message, statusCode, codigoError) {
         super(message);
         this.name = 'DomainError';
         this.statusCode = statusCode;
+        this.codigoError = codigoError;
     }
 }
 exports.DomainError = DomainError;
 class Envio {
-    constructor(id, sku, descripcion, pesoKg, estado = 'EN_ALMACEN') {
-        if (!sku || sku.trim() === '') {
-            throw new DomainError('El SKU del producto es obligatorio.', 400);
+    constructor(id_envio, estado_actual = 'RECEIVED') {
+        if (!id_envio || id_envio.trim() === '') {
+            throw new DomainError('El id_envio es obligatorio', 400, 'BAD_REQUEST');
         }
-        if (!descripcion || descripcion.trim() === '') {
-            throw new DomainError('La descripción es obligatoria.', 400);
-        }
-        if (pesoKg <= 0) {
-            throw new DomainError('El peso debe ser mayor a 0 kg.', 400);
-        }
-        if (!Envio.ESTADOS_VALIDOS.includes(estado)) {
-            throw new DomainError(`Estado inicial inválido: ${estado}`, 400);
-        }
-        this.id = id;
-        this.sku = sku;
-        this.descripcion = descripcion;
-        this.pesoKg = pesoKg;
-        this._estado = estado;
+        this.id_envio = id_envio;
+        this._estado_actual = estado_actual;
     }
-    get estado() {
-        return this._estado;
+    get estado_actual() {
+        return this._estado_actual;
     }
-    cambiarEstado(nuevoEstado) {
-        if (!Envio.ESTADOS_VALIDOS.includes(nuevoEstado)) {
-            throw new DomainError(`Estado inválido. Permitidos: ${Envio.ESTADOS_VALIDOS.join(', ')}`, 400);
+    cambiarEstado(nuevoEstado, usuarioId, motivoCancelacion) {
+        if (!usuarioId || usuarioId.trim() === '') {
+            throw new DomainError('usuario_id es obligatorio para auditar el cambio', 400, 'BAD_REQUEST');
         }
-        if (nuevoEstado === 'CANCELADO' &&
-            (this._estado === 'EN_RUTA' || this._estado === 'ENTREGADO')) {
-            throw new DomainError(`Operación denegada: No se puede cancelar un envío que ya está ${this._estado}.`, 409);
+        if (!nuevoEstado || !Envio.ESTADOS_VALIDOS.includes(nuevoEstado)) {
+            throw new DomainError(`estado_orden inválido. Valores permitidos: ${Envio.ESTADOS_VALIDOS.join(', ')}`, 400, 'BAD_REQUEST');
         }
-        if (this._estado === 'CANCELADO' || this._estado === 'ENTREGADO') {
-            throw new DomainError(`El envío se encuentra en un estado final (${this._estado}) y no admite cambios.`, 409);
+        // Regla de integridad: Si se cancela, motivo_cancelacion es obligatorio (400)
+        if (nuevoEstado === 'CANCELLED' && (!motivoCancelacion || motivoCancelacion.trim() === '')) {
+            throw new DomainError('usuario_id y motivo_cancelacion son obligatorios para cancelar', 400, 'BAD_REQUEST');
         }
-        this._estado = nuevoEstado;
-    }
-    toJSON() {
-        return {
-            id: this.id,
-            sku: this.sku,
-            descripcion: this.descripcion,
-            pesoKg: this.pesoKg,
-            estado: this._estado,
-        };
+        // Regla de negocio: No cancelar si ya está OUT_FOR_DELIVERY (409)
+        if (nuevoEstado === 'CANCELLED' && this._estado_actual === 'OUT_FOR_DELIVERY') {
+            throw new DomainError('No se puede cancelar: el envío ya está en ruta', 409, 'CONFLICT_SHIPPING_IN_ROUTE');
+        }
+        if (this._estado_actual === 'CANCELLED' || this._estado_actual === 'DELIVERED') {
+            throw new DomainError(`El envío se encuentra en estado final (${this._estado_actual}) y no puede modificarse`, 409, 'CONFLICT_FINAL_STATE');
+        }
+        this._estado_actual = nuevoEstado;
+        this.ultimo_usuario_id = usuarioId;
+        if (motivoCancelacion) {
+            this.motivo_cancelacion = motivoCancelacion;
+        }
     }
 }
 exports.Envio = Envio;
 Envio.ESTADOS_VALIDOS = [
-    'EN_ALMACEN',
-    'EN_RUTA',
-    'ENTREGADO',
-    'CANCELADO',
+    'RECEIVED',
+    'PREPARING',
+    'OUT_FOR_DELIVERY',
+    'DELIVERED',
+    'CANCELLED',
 ];

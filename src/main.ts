@@ -9,13 +9,10 @@ app.use(express.json());
 // Inyección manual de dependencias por constructor
 const envioRepository = new InMemoryEnvioRepository();
 const actualizarEstadoUseCase = new ActualizarEstadoEnvioUseCase(envioRepository);
-const envioController = new EnvioController(actualizarEstadoUseCase, envioRepository);
+const envioController = new EnvioController(actualizarEstadoUseCase);
 
-// Rutas RESTful
-app.get('/api/v1/productos', envioController.listar);
-app.get('/api/v1/productos/:id', envioController.obtenerPorId);
-app.post('/api/v1/productos', envioController.crear);
-app.patch('/api/v1/productos/:id/estado', envioController.actualizarEstado);
+// Endpoint exacto del contrato OpenAPI 3.0.3
+app.patch('/api/v1/envios/:id/estado', envioController.actualizarEstado);
 
 const PORT = 3000;
 app.listen(PORT, () => {

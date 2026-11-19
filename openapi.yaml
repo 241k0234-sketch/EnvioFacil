@@ -1,0 +1,125 @@
+openapi: 3.0.3
+info:
+  title: API EnvioFacil Gestión de Estados de Envío
+  description: Contrato API-First trazado desde el modelo relacional para el control de ciclo de vida de paquetes.
+  version: 1.0.3
+
+servers:
+  - url: http://localhost:3000
+    description: Entorno Local de Simulación
+
+paths:
+  /api/v1/envios/{id}/estado:
+    patch:
+      summary: Actualizar parcialmente el estado de un envío
+      description: Permite transicionar el estado de una orden aplicando reglas de integridad y auditoría.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador único de la orden de envío
+          schema:
+            type: string
+            example: EF-3001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActualizarEstadoRequest'
+            examples:
+              entregaExitosa:
+                summary: Cambio a DELIVERED (200)
+                value:
+                  estado_orden: DELIVERED
+                  usuario_id: USR-101
+              cancelacionIncompleta:
+                summary: Cancelación sin motivo (400)
+                value:
+                  estado_orden: CANCELLED
+              cancelacionEnRuta:
+                summary: Intento de cancelar envío en ruta (409)
+                value:
+                  estado_orden: CANCELLED
+                  usuario_id: USR-102
+                  motivo_cancelacion: Cliente ausente
+      responses:
+        '200':
+          description: Estado actualizado con éxito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespuestaExito'
+        '400':
+          description: Solicitud mal formada o datos obligatorios faltantes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigoError: BAD_REQUEST
+                mensaje: usuario_id y motivo_cancelacion son obligatorios para cancelar
+        '404':
+          description: Recurso no encontrado en el sistema
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigoError: NOT_FOUND
+                mensaje: Orden no encontrada
+        '409':
+          description: Conflicto con la regla de negocio del estado actual
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigoError: CONFLICT_SHIPPING_IN_ROUTE
+                mensaje: "No se puede cancelar: el envío ya está en ruta"
+
+components:
+  schemas:
+    EstadoOrden:
+      type: string
+      enum:
+        - RECEIVED
+        - PREPARING
+        - OUT_FOR_DELIVERY
+        - DELIVERED
+        - CANCELLED
+    ActualizarEstadoRequest:
+      type: object
+      required:
+        - estado_orden
+        - usuario_id
+      properties:
+        estado_orden:
+          $ref: '#/components/schemas/EstadoOrden'
+        usuario_id:
+          type: string
+          example: USR-101
+        motivo_cancelacion:
+          type: string
+          example: Cliente ausente
+    RespuestaExito:
+      type: object
+      properties:
+        mensaje:
+          type: string
+          example: Estado actualizado con éxito
+        orden_id:
+          type: string
+          example: EF-3001
+        fecha_hora:
+          type: string
+          format: date-time
+          example: "2026-11-19T10:30:00Z"
+    ErrorResponse:
+      type: object
+      properties:
+        codigoError:
+          type: string
+        mensaje:
+          type: string
+          

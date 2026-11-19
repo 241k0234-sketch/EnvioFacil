@@ -1,95 +1,99 @@
-export type EstadoEnvio = 'EN_ALMACEN' | 'EN_RUTA' | 'ENTREGADO' | 'CANCELADO';
+export type EstadoOrden =
+  | 'RECEIVED'
+  | 'PREPARING'
+  | 'OUT_FOR_DELIVERY'
+  | 'DELIVERED'
+  | 'CANCELLED';
 
 export class DomainError extends Error {
   public readonly statusCode: number;
+  public readonly codigoError: string;
 
-  constructor(message: string, statusCode: number = 400) {
+  constructor(message: string, statusCode: number, codigoError: string) {
     super(message);
     this.name = 'DomainError';
     this.statusCode = statusCode;
+    this.codigoError = codigoError;
   }
 }
 
 export class Envio {
-  public readonly id: number;
-  public readonly sku: string;
-  public readonly descripcion: string;
-  public readonly pesoKg: number;
-  private _estado: EstadoEnvio;
+  public readonly id_envio: string;
+  private _estado_actual: EstadoOrden;
+  public ultimo_usuario_id?: string;
+  public motivo_cancelacion?: string;
 
-  private static readonly ESTADOS_VALIDOS: EstadoEnvio[] = [
-    'EN_ALMACEN',
-    'EN_RUTA',
-    'ENTREGADO',
-    'CANCELADO',
+  public static readonly ESTADOS_VALIDOS: EstadoOrden[] = [
+    'RECEIVED',
+    'PREPARING',
+    'OUT_FOR_DELIVERY',
+    'DELIVERED',
+    'CANCELLED',
   ];
 
-  constructor(
-    id: number,
-    sku: string,
-    descripcion: string,
-    pesoKg: number,
-    estado: EstadoEnvio = 'EN_ALMACEN'
-  ) {
-    if (!sku || sku.trim() === '') {
-      throw new DomainError('El SKU del producto es obligatorio.', 400);
+  constructor(id_envio: string, estado_actual: EstadoOrden = 'RECEIVED') {
+    if (!id_envio || id_envio.trim() === '') {
+      throw new DomainError('El id_envio es obligatorio', 400, 'BAD_REQUEST');
     }
-    if (!descripcion || descripcion.trim() === '') {
-      throw new DomainError('La descripción es obligatoria.', 400);
-    }
-    if (pesoKg <= 0) {
-      throw new DomainError('El peso debe ser mayor a 0 kg.', 400);
-    }
-    if (!Envio.ESTADOS_VALIDOS.includes(estado)) {
-      throw new DomainError(`Estado inicial inválido: ${estado}`, 400);
-    }
-
-    this.id = id;
-    this.sku = sku;
-    this.descripcion = descripcion;
-    this.pesoKg = pesoKg;
-    this._estado = estado;
+    this.id_envio = id_envio;
+    this._estado_actual = estado_actual;
   }
 
-  public get estado(): EstadoEnvio {
-    return this._estado;
+  public get estado_actual(): EstadoOrden {
+    return this._estado_actual;
   }
 
-  public cambiarEstado(nuevoEstado: EstadoEnvio): void {
-    if (!Envio.ESTADOS_VALIDOS.includes(nuevoEstado)) {
+  public cambiarEstado(
+    nuevoEstado: EstadoOrden,
+    usuarioId: string,
+    motivoCancelacion?: string
+  ): void {
+    if (!usuarioId || usuarioId.trim() === '') {
       throw new DomainError(
-        `Estado inválido. Permitidos: ${Envio.ESTADOS_VALIDOS.join(', ')}`,
-        400
+        'usuario_id es obligatorio para auditar el cambio',
+        400,
+        'BAD_REQUEST'
       );
     }
 
-    if (
-      nuevoEstado === 'CANCELADO' &&
-      (this._estado === 'EN_RUTA' || this._estado === 'ENTREGADO')
-    ) {
+    if (!nuevoEstado || !Envio.ESTADOS_VALIDOS.includes(nuevoEstado)) {
       throw new DomainError(
-        `Operación denegada: No se puede cancelar un envío que ya está ${this._estado}.`,
-        409
+        `estado_orden inválido. Valores permitidos: ${Envio.ESTADOS_VALIDOS.join(', ')}`,
+        400,
+        'BAD_REQUEST'
       );
     }
 
-    if (this._estado === 'CANCELADO' || this._estado === 'ENTREGADO') {
+    // Regla de integridad: Si se cancela, motivo_cancelacion es obligatorio (400)
+    if (nuevoEstado === 'CANCELLED' && (!motivoCancelacion || motivoCancelacion.trim() === '')) {
       throw new DomainError(
-        `El envío se encuentra en un estado final (${this._estado}) y no admite cambios.`,
-        409
+        'usuario_id y motivo_cancelacion son obligatorios para cancelar',
+        400,
+        'BAD_REQUEST'
       );
     }
 
-    this._estado = nuevoEstado;
-  }
+    // Regla de negocio: No cancelar si ya está OUT_FOR_DELIVERY (409)
+    if (nuevoEstado === 'CANCELLED' && this._estado_actual === 'OUT_FOR_DELIVERY') {
+      throw new DomainError(
+        'No se puede cancelar: el envío ya está en ruta',
+        409,
+        'CONFLICT_SHIPPING_IN_ROUTE'
+      );
+    }
 
-  public toJSON() {
-    return {
-      id: this.id,
-      sku: this.sku,
-      descripcion: this.descripcion,
-      pesoKg: this.pesoKg,
-      estado: this._estado,
-    };
+    if (this._estado_actual === 'CANCELLED' || this._estado_actual === 'DELIVERED') {
+      throw new DomainError(
+        `El envío se encuentra en estado final (${this._estado_actual}) y no puede modificarse`,
+        409,
+        'CONFLICT_FINAL_STATE'
+      );
+    }
+
+    this._estado_actual = nuevoEstado;
+    this.ultimo_usuario_id = usuarioId;
+    if (motivoCancelacion) {
+      this.motivo_cancelacion = motivoCancelacion;
+    }
   }
 }
